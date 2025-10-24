@@ -1,28 +1,84 @@
-require('dotenv').config();
-const fs = require('fs');
-const express = require('express');
-const { google } = require('googleapis');
-const bodyParser = require('body-parser');
-const cors = require('cors');
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import fs from 'fs';
+import { google } from 'googleapis';
+import dotenv from 'dotenv';
 
-const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, OAUTH_REDIRECT_URI, PORT = 4000, ACCESS_KEY = 'FRK', TOKEN_STORE = './tokens.json' } = process.env;
+dotenv.config();
 const app = express();
+app.use(cors());
 app.use(bodyParser.json());
-app.use(cors({ origin: true }));
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, OAUTH_REDIRECT_URI);
 
-function saveTokens(tokens) { fs.writeFileSync(TOKEN_STORE, JSON.stringify(tokens, null, 2)); }
-function loadTokens() { if (!fs.existsSync(TOKEN_STORE)) return null; return JSON.parse(fs.readFileSync(TOKEN_STORE, 'utf8')); }
-function checkAccessKey(req, res, next) { if ((req.get('x-access-key') || '').trim() !== ACCESS_KEY) return res.status(403).json({ error: 'Invalid access key' }); next(); }
-async function ensureValidCredentials() { const tokens = loadTokens(); if (!tokens) throw new Error('No tokens. Visit /auth/url first.'); oauth2Client.setCredentials(tokens); oauth2Client.on && oauth2Client.on('tokens', (newTokens) => { const merged = Object.assign({}, tokens, newTokens); saveTokens(merged); }); return oauth2Client; }
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.OAUTH_REDIRECT_URI
+);
 
-app.get('/auth/url', (req, res) => { const url = oauth2Client.generateAuthUrl({ access_type: 'offline', scope: SCOPES, prompt: 'consent' }); res.json({ url }); });
+// Load tokens
+let tokens = {};
+if (fs.existsSync(process.env.TOKEN_STORE)) {
+  tokens = JSON.parse(fs.readFileSync(process.env.TOKEN_STORE));
+}
 
-app.get('/auth/callback', async (req, res) => { const code = req.query.code; if (!code) return res.status(400).send('Missing code'); try { const { tokens } = await oauth2Client.getToken(code); saveTokens(tokens); res.send('<h3>Gmail authorized successfully!</h3><p>Close this window and return to your app.</p>'); } catch (err) { console.error(err); res.status(500).send('Authorization failed'); } });
+// Generate auth URL
+app.get('/auth/url', (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES,
+  });
+  res.send(`<a href="${url}" target="_blank">Authorize Gmail</a>`);
+});
 
-app.get('/api/messages', checkAccessKey, async (req, res) => { try { await ensureValidCredentials(); const gmail = google.gmail({ version: 'v1', auth: oauth2Client }); const listResp = await gmail.users.messages.list({ userId: 'me', labelIds: ['UNREAD'], maxResults: Math.min(parseInt(req.query.max || '10', 10), 50) }); const messages = listResp.data.messages || []; const out = []; for (const m of messages) { const msg = await gmail.users.messages.get({ userId: 'me', id: m.id, format: 'metadata', metadataHeaders: ['From', 'Subject', 'Date'] }); const headers = msg.data.payload?.headers || []; const headerMap = {}; headers.forEach(h => headerMap[h.name] = h.value); out.push({ id: m.id, subject: headerMap['Subject'] || '(no subject)', from: headerMap['From'] || '', date: headerMap['Date'] || '', snippet: msg.data.snippet || '' }); } res.json({ messages: out }); } catch (err) { console.error(err); res.status(500).json({ error: String(err.message || err) }); } });
+// OAuth callback
+app.get('/auth/callback', async (req, res) => {
+  const code = req.query.code;
+  const { tokens: newTokens } = await oauth2Client.getToken(code);
+  oauth2Client.setCredentials(newTokens);
+  // Save tokens
+  fs.writeFileSync(process.env.TOKEN_STORE, JSON.stringify(newTokens, null, 2));
+  res.send('Gmail authorized successfully!');
+});
 
-app.get('/', (req, res) => res.send('Gmail hobby backend running.'));
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Check if email is authenticated
+app.post('/api/check-auth', async (req, res) => {
+  const { email } = req.body;
+  // Check if token exists for this email
+  if (tokens.email === email) {
+    return res.json({ authenticated: true });
+  }
+  return res.json({ authenticated: false });
+});
+
+// Get inbox messages (subjects only)
+app.get('/api/messages', async (req, res) => {
+  const email = req.query.email;
+  if (!tokens.email || tokens.email !== email) {
+    return res.status(401).json({ error: 'Email not authenticated' });
+  }
+  oauth2Client.setCredentials(tokens);
+  const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+  try {
+    const listRes = await gmail.users.messages.list({ userId: 'me', maxResults: 20 });
+    const messages = [];
+    if (listRes.data.messages) {
+      for (const msg of listRes.data.messages) {
+        const m = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata', metadataHeaders: ['Subject'] });
+        const subjectHeader = m.data.payload.headers.find(h => h.name === 'Subject');
+        messages.push({
+          id: msg.id,
+          subject: subjectHeader ? subjectHeader.value : '(No Subject)',
+        });
+      }
+    }
+    res.json({ messages });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(process.env.PORT || 4000, () => console.log('Gmail backend running.'));
