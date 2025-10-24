@@ -2,7 +2,11 @@ name = "gmail-worker"
 main = "src/index.js"
 compatibility_date = "2025-10-24"
 
-# Bind the KV namespace you will create (see instructions).
 kv_namespaces = [
   { binding = "GMAIL_TOKENS", id = "292df340b7b64193bdb3b44af27f7701" }
 ]
+
+[vars]
+GOOGLE_CLIENT_ID = "1038115752161-03r1mej3kji7p3956qrpgnb158d6l3gn.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
+REDIRECT_URI = "https://backend.atifhasan358.workers.dev/auth/callback"
