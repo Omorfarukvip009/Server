@@ -1,0 +1,8 @@
+name = "gmail-worker"
+main = "src/index.js"
+compatibility_date = "2025-10-24"
+
+# Bind the KV namespace you will create (see instructions).
+kv_namespaces = [
+  { binding = "GMAIL_TOKENS", id = "292df340b7b64193bdb3b44af27f7701" }
+]
