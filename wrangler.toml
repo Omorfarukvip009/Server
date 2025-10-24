@@ -1,4 +1,4 @@
-name = "gmail-worker"
+name = "backend"
 main = "src/index.js"
 compatibility_date = "2025-10-24"
 
