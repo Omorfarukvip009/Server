@@ -7,6 +7,6 @@ kv_namespaces = [
 ]
 
 [vars]
-GOOGLE_CLIENT_ID = "1038115752161-03r1mej3kji7p3956qrpgnb158d6l3gn.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET = "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"
+GMAIL_CLIENT_ID = "1038115752161-03r1mej3kji7p3956qrpgnb158d6l3gn.apps.googleusercontent.com"
+GMAIL_CLIENT_SECRET = "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"
 REDIRECT_URI = "https://backend.atifhasan358.workers.dev/auth/callback"
